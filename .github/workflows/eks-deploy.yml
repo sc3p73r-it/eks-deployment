@@ -1,0 +1,54 @@
+name: Image Build with GitHub Actions & Push to ECR and Deploy to EKS
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ECR_REPOSITORY: vtmm-ecr-repo
+  EKS_CLUSTER_NAME: vtmm-eks-cluster1
+  AWS_REGION: us-east-1
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Get Short Git Commit SHA
+      id: commit
+      run: echo "short=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+    - name: Build, Tag, and Push Docker Image to Amazon ECR
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ steps.commit.outputs.short }}
+      run: |
+        docker build -t $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $REGISTRY/$ECR_REPOSITORY:latest -f docker/Dockerfile .
+        docker push $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+    - name: Update kubeconfig for EKS Cluster
+      run: aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region ${{ env.AWS_REGION }}
+
+    - name: Deploy to EKS
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}        
+        IMAGE_TAG: ${{ steps.commit.outputs.short }}
+      run: |
+        sed -i.bak "s|DOCKER_IMAGE|$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG|g" manifests/vtmm-app-deployment.yaml && \
+        kubectl apply --validate=false -f manifests/vtmm-app-deployment.yaml
+        kubectl apply --validate=false -f manifests/vtmm-app-service.yaml

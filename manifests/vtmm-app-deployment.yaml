@@ -1,0 +1,29 @@
+apiVersion: apps/v1 
+kind: Deployment
+metadata:
+  name: vtmm-app
+  labels: 
+     app: vtmm-app
+
+spec:
+  replicas: 1 
+  selector:
+    matchLabels:
+      app: vtmm-app
+
+  template:
+    metadata:
+      labels:
+        app: vtmm-app
+    spec:
+      containers:
+      - name: vtmm-app
+        image: DOCKER_IMAGE
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
